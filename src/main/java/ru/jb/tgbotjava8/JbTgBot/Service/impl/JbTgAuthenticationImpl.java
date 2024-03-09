@@ -81,9 +81,9 @@ public class JbTgAuthenticationImpl implements JbTgAuthentication {
 
 
     private boolean Authenticate(Message message) {
-        if (oneTimePasswords.contains(message.getText())) {
-            message.setText(JbTelegramBotImpl.START_COMMAND);
+        if (oneTimePasswords.contains(message.getText())) {            
             RemoveOtp(message.getText());
+            message.setText(JbTelegramBotImpl.START_COMMAND);
             return true;
         }
         return false;
