@@ -27,6 +27,7 @@ public class Controller implements TLSServerListener , JbTgBotListener {
         this.tlsServer=tlsServer;
         telegramBot.AddListener(this);
         tlsServer.AddListener(this);
+        log.info("Controller started");
     }
 
 

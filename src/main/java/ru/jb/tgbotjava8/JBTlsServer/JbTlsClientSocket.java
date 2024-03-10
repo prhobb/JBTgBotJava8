@@ -99,7 +99,7 @@ public class JbTlsClientSocket implements Runnable{
                     keepAlive();
                 }
             });
-            log.info("Connected new client. Client address:{1}", clientSocket.getRemoteSocketAddress().toString());
+            log.info("Connected new client. Client address:{}", clientSocket.getRemoteSocketAddress().toString());
         } catch (IOException e){
             log.error((e));
         }
@@ -287,7 +287,7 @@ public class JbTlsClientSocket implements Runnable{
             byte[] res = messageDigest.digest(message);
             return res;
         } catch (NoSuchAlgorithmException e) {
-            log.error("NoSuchAlgorithmException: {1}",e);
+            log.error("NoSuchAlgorithmException: ",e);
         }
         return new byte[0];
     }
@@ -323,7 +323,7 @@ public class JbTlsClientSocket implements Runnable{
                 log.error("Can't send null buffer");
         }
         else
-            return "Бот недоступен";
+            return "Socket is closed";
         return "";
     }
 

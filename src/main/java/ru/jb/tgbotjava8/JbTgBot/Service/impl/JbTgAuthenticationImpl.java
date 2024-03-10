@@ -51,7 +51,8 @@ public class JbTgAuthenticationImpl implements JbTgAuthentication {
             oneTimePasswords = (OneTimePasswords) unmarshaller.unmarshal(reader);
 
         }catch (FileNotFoundException e){
-            saveOtp();
+            AddOtp("123");
+            //saveOtp();
         } catch (Exception ex) {
             log.error(ex);
             oneTimePasswords = new OneTimePasswords();
