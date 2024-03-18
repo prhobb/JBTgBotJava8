@@ -9,5 +9,6 @@ public interface JBTlsServer {
     public String Send(byte[] message);
     public void AddListener(TLSServerListener listener);
     public void AddClientSocket(Socket clientSocket);
+    public boolean isConnected();
 
 }

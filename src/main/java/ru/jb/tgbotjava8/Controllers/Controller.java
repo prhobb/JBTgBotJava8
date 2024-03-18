@@ -19,15 +19,19 @@ public class Controller implements TLSServerListener , JbTgBotListener {
     JBTgBot telegramBot;
     TlsServer tlsServer;
 
-
+    Thread delayedDisconnectAlert;
+    boolean delayedDisconnectAlertStarted;
 
     @Autowired
     public Controller(JBTgBot telegramBot, TlsServer tlsServer){
         this.telegramBot=telegramBot;
         this.tlsServer=tlsServer;
+        delayedDisconnectAlert=null;
+        delayedDisconnectAlertStarted=false;
         telegramBot.AddListener(this);
         tlsServer.AddListener(this);
         log.info("Controller started");
+        telegramBot.Send(TelegramMessage.GetTelegramMessage("TelegramBotApp Started",0));
     }
 
 
@@ -43,16 +47,42 @@ public class Controller implements TLSServerListener , JbTgBotListener {
 
     @Override
     public void OnConnected() {
-        telegramBot.Send(TelegramMessage.GetTelegramMessage(SSL_CLIENT_CONNECTED_MESSAGE,0));
+        log.info("OnConnected()");
+        if(!delayedDisconnectAlertStarted) {
+            telegramBot.Send(TelegramMessage.GetTelegramMessage(SSL_CLIENT_CONNECTED_MESSAGE, 0));
+        }
     }
 
     @Override
     public void OnDisconnected() {
-        telegramBot.Send(TelegramMessage.GetTelegramMessage(SSL_CLIENT_DISCONNECTED_MESSAGE,0));
+        log.info("OnDisconnected()");
+        if (delayedDisconnectAlert == null || !delayedDisconnectAlertStarted) {
+            delayedDisconnectAlertStarted = true;
+            delayedDisconnectAlert = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    DelayedDisconnectAlert();
+                }
+            });
+            delayedDisconnectAlert.start();
+        }
     }
 
     @Override
     public String OnTgReceive(TelegramMessage message) {
         return tlsServer.Send(message.Serialize());
+    }
+
+    private  void DelayedDisconnectAlert() {
+        log.info("DelayedDisconnectAlert()");
+        try {
+            delayedDisconnectAlertStarted = true;
+            Thread.sleep(20000);
+            if (delayedDisconnectAlertStarted && !tlsServer.isConnected())
+                telegramBot.Send(TelegramMessage.GetTelegramMessage(SSL_CLIENT_DISCONNECTED_MESSAGE, 0));
+        } catch (InterruptedException e) {
+            log.error(e);
+        }
+        delayedDisconnectAlertStarted = false;
     }
 }

@@ -18,8 +18,10 @@ public class JbTlsClientSocket implements Runnable{
     public enum MessageType {
         NONE((byte) 0),
         DATA((byte) 1),
-        KEEP_ALIVE((byte) 2);
+        KEEP_ALIVE((byte) 2),
+        ACK((byte) 3);
         private byte type;
+
 
         MessageType(byte type) {
             this.type = type;
@@ -35,6 +37,8 @@ public class JbTlsClientSocket implements Runnable{
                     return DATA;
                 case 2:
                     return KEEP_ALIVE;
+                case 3:
+                    return ACK;
                 default:
                     return NONE;
             }
@@ -43,7 +47,8 @@ public class JbTlsClientSocket implements Runnable{
     static final int PAYLOAD_SIZE_POSITION=0;
     static final int HASH_POSITION=4;
     static final int MESSAGETYPE_POSITION=36;
-    static final int PAYLOAD_POSITION=37;
+    static final int MESSAGENUMBER_POSITION=37;
+    static final int PAYLOAD_POSITION=41;
     static final int KEEPALIVE_TIME=30;
     //static final int KEEPALIVE_TIMEOUT=5;
     static final int KEEPALIVE_PROBE=2;
@@ -57,12 +62,15 @@ public class JbTlsClientSocket implements Runnable{
     Thread keepaliveThread;
     boolean started;
 
+
+
     boolean isKeepalive;
     boolean isKeepaliveReceived;
     int keepaliveTries;
     int keepaliveTime;
     //int keepaliveTimeout;
     int keepaliveProbe;
+
 
 
     public boolean isKeepalive() {
@@ -81,6 +89,7 @@ public class JbTlsClientSocket implements Runnable{
 
     public JbTlsClientSocket(Socket clientSocket, JbTlsClientSocketListener listener){
         super();
+
         this.started=false;
         this.keepaliveTime=KEEPALIVE_TIME;
         //this.keepaliveTimeout=KEEPALIVE_TIMEOUT;
@@ -125,7 +134,9 @@ public class JbTlsClientSocket implements Runnable{
                     //Read new Packet
                     byte[] sizeBuffer = new byte[4];
                     byte[] hashBuffer = new byte[32];
+                    byte[] messagenumberBuffer = new byte[4];
                     byte[] payloadBuffer = new byte[0];
+                    int messagenumber=0;
                     MessageType messageType = MessageType.NONE;
                     for(int i=0,paketLength=PAYLOAD_POSITION;i<paketLength;i++){
                         receivedByte = inputStream.read();
@@ -155,25 +166,38 @@ public class JbTlsClientSocket implements Runnable{
                         else if(i==MESSAGETYPE_POSITION){
                             messageType = MessageType.getTypeOfByte((byte) receivedByte);
                         }
+                        //Read messagenumber
+                        else if(i<MESSAGENUMBER_POSITION+messagenumberBuffer.length && i>=MESSAGENUMBER_POSITION){
+                            messagenumberBuffer[i-MESSAGENUMBER_POSITION] = (byte) receivedByte;
+                            if (i==MESSAGENUMBER_POSITION+ sizeBuffer.length-1){
+                                messagenumber = new BigInteger(messagenumberBuffer).intValue();
+                                if (messagenumber < 0) throw new StreamShouldBeReset("Messagenumber should be positive");
+                            }
+                        }
                         //Read payload
                         else if(i<PAYLOAD_POSITION+payloadBuffer.length && i>=PAYLOAD_POSITION){
                             payloadBuffer[i-PAYLOAD_POSITION] = (byte) receivedByte;
-
                         }
                         //Checking after full message received
                         if(i==paketLength-1) {
 
                             switch (messageType) {
                                 case DATA:
-                                //Check received data hash
-                                if (!checkHash(payloadBuffer, hashBuffer))
-                                    throw new StreamShouldBeReset("Wrong hash.");
-                                //Run listener if all is fine
-                                if(listener!=null)
-                                    listener.OnSslReceive(payloadBuffer);
-                                break;
+                                    //Check received data hash
+                                    if (!checkHash(payloadBuffer, hashBuffer))
+                                        throw new StreamShouldBeReset("Wrong hash.");
+                                    //Run listener if all is fine
+                                    if(listener!=null)
+                                        listener.OnSslReceive(payloadBuffer);
+                                    //Send ACK
+                                    Send(null,MessageType.ACK,messagenumber);
+                                    break;
                                 case KEEP_ALIVE:
                                     isKeepaliveReceived=true;
+                                    break;
+                                case  ACK:
+                                    if(listener!=null)
+                                        listener.OnAckReceive(messagenumber);
                                     break;
                             }
                         }
@@ -257,7 +281,7 @@ public class JbTlsClientSocket implements Runnable{
                 keepaliveTries = keepaliveProbe;
             }
             isKeepaliveReceived=false;
-            Send(null,MessageType.KEEP_ALIVE);
+            Send(null,MessageType.KEEP_ALIVE,0);
             try {
                 Thread.sleep(keepaliveTime*1000);
             } catch (InterruptedException e) {
@@ -287,7 +311,7 @@ public class JbTlsClientSocket implements Runnable{
             byte[] res = messageDigest.digest(message);
             return res;
         } catch (NoSuchAlgorithmException e) {
-            log.error("NoSuchAlgorithmException: ",e);
+            log.error("NoSuchAlgorithmException: {1}",e);
         }
         return new byte[0];
     }
@@ -307,28 +331,28 @@ public class JbTlsClientSocket implements Runnable{
         return clientSocket.isClosed();
     }
 
-    public String Send(byte[] message , MessageType messageType){
-        if(clientSocket !=null && !clientSocket.isClosed()) {
-            byte[] buffer = GetSendBuffer(message,messageType);
-            if(buffer!=null) {
-                try {
-                    outputStream.write(buffer);
-                    outputStream.flush();
-                } catch (IOException ex) {
-                    log.error("Error while sending message via SSL. ", ex);
-                    Close();
-                }
-            }
-            else
-                log.error("Can't send null buffer");
+    public String Send(byte[] message , MessageType messageType, int messageNumber){
+        synchronized (this) {
+            if (clientSocket != null && !clientSocket.isClosed()) {
+                byte[] buffer = GetSendBuffer(message, messageType, messageNumber);
+                if (buffer != null) {
+                    try {
+                        outputStream.write(buffer);
+                        outputStream.flush();
+                    } catch (IOException ex) {
+                        log.error("Error while sending message via SSL. ", ex);
+                        Close();
+                    }
+                } else
+                    log.error("Can't send null buffer");
+            } else
+                return "Socket is closed";
+            return "";
         }
-        else
-            return "Socket is closed";
-        return "";
     }
 
-    private static byte[] GetSendBuffer(byte[] message,MessageType messageType) {
-        //Структура. 0-bit--3bit: Payload size, 4-bit--35bit: Hash, 36bit: MessageType, 37-bit--end: Payload
+    private static byte[] GetSendBuffer(byte[] message,MessageType messageType,int messagenumber) {
+        //Структура. 0-byte--3byte: Payload size, 4-byte--35byte: Hash, 36byte: MessageType, 37-byte--40byte:messagenumber 41-byte--end: Payload
         if (message == null && messageType!=MessageType.DATA)
             message = new byte[1];
         //Считаем хэш сообщения
@@ -337,7 +361,7 @@ public class JbTlsClientSocket implements Runnable{
 
             //Записываем размер сообщения
             byte[] result = new byte[message.length + PAYLOAD_POSITION];
-            log.debug("Send data Length: {Length}", message.length);
+            log.debug("Send data Length: {}", message.length);
             result[0] = (byte) (message.length >> 24);
             result[1] = (byte) (message.length >> 16);
             result[2] = (byte) (message.length >> 8);
@@ -348,6 +372,12 @@ public class JbTlsClientSocket implements Runnable{
 
             //Write MessageType
             result[MESSAGETYPE_POSITION]= messageType.getValue();
+
+            //Write messagenumber
+            result[MESSAGENUMBER_POSITION] = (byte) (messagenumber >> 24);
+            result[MESSAGENUMBER_POSITION+1] = (byte) (messagenumber >> 16);
+            result[MESSAGENUMBER_POSITION+2] = (byte) (messagenumber >> 8);
+            result[MESSAGENUMBER_POSITION+3] = (byte) messagenumber;
 
             //Копируем данные в result
             System.arraycopy(message, 0, result, PAYLOAD_POSITION, message.length);

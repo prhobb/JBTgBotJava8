@@ -46,7 +46,8 @@ public class JbTelegramBotImpl extends TelegramLongPollingBot  implements JBTgBo
 
 
     @Autowired
-    public JbTelegramBotImpl(TgBotConfig tgBotConfig, JbTgAuthentication jbTgAuthenticationService, JbTgChatsRepository jbTgChatsRepository) {
+    public JbTelegramBotImpl(TgBotConfig tgBotConfig, JbTgAuthentication jbTgAuthenticationService,
+                             JbTgChatsRepository jbTgChatsRepository) {
         super(tgBotConfig.getToken());
         this.tgBotConfig = tgBotConfig;
         this.botName = tgBotConfig.getBotName();
